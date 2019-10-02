@@ -112,7 +112,6 @@ def test(model, device, test_loader, epoch, print_freq):
             data = data.to(device)
             target_data = target_data.to(device)
 
-            #  dSprites, MNIST dataset
             recon_batch, mu, logvar = model(data)
             loss = bernoulli_loss_function(recon_batch, target_data, mu, logvar, beta=1,
                                            imgsize=recon_batch.view(data.data.size(0), -1).size(1))

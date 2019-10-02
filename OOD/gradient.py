@@ -70,7 +70,7 @@ class VanillaBackprop:
 
         input_image.requires_grad = True
         input_image.register_hook(self.save_grad('input', is_act=True))
-        # Used activation hook because of  the Linear layer exception described in the comments of hook_function
+        # Used activation hook because of the Linear layer exception described in the comments of hook_function
         self.model.module.fc11.weight.register_hook(self.save_grad('fc11', is_act=True))
         mu, logvar = self.model.module.encode(input_image)
         self.z = self.model.module.reparameterize(mu, logvar)
@@ -82,58 +82,3 @@ class VanillaBackprop:
                                                  loss_type=self.loss_type)
         loss.backward()
         return
-
-
-def main():
-    dataset_dir = '/home/gukyeong/dataset/mnist'
-    vae_ckpt = './checkpoints/mnist/vae/gradient/vae_BCE_gradient_reducedCnnSeq-4layer_in-0-5_out-6-9/' \
-               'model_best.pth.tar'
-
-    vae = models.VAEReducedCNN()
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    vae = torch.nn.DataParallel(vae).to(device)
-    if os.path.isfile(vae_ckpt):
-        print("=> loading checkpoint '{}'".format(vae_ckpt))
-        checkpoint = torch.load(vae_ckpt)
-        best_loss = checkpoint['best_loss']
-        vae.load_state_dict(checkpoint['state_dict'])
-        print("=> loaded checkpoint '{}' (epoch {}, best_loss {})"
-              .format(vae_ckpt, checkpoint['epoch'], best_loss))
-    else:
-        print("=> no checkpoint found at '{}'".format(vae_ckpt))
-
-    vbackprop = VanillaBackprop(vae)
-
-    nsamples_perclass = 10
-    test_nsamples_perclass = [nsamples_perclass] * 10
-
-    ##########################################################################################
-    # Gradients Stat.
-    grad_stat = np.zeros([sum(test_nsamples_perclass), 4])
-    label_cnt = [0] * 10
-
-    # Vanilla Backpropagation Visualization
-    # class_cnt = [0] * 10
-
-    # Gradient Visualization on Latent Space
-    # z = np.zeros([sum(test_nsamples_perclass), 2])
-    # gradients = np.zeros([sum(test_nsamples_perclass), 2])
-    # labels = np.zeros([sum(test_nsamples_perclass),])
-    batch_size = 16
-    test_loader = torch.utils.data.DataLoader(
-        datasets.SubsetMNISTdataset(dataset_dir, train=False, transform=transforms.ToTensor(),
-                                    target_transform=transforms.ToTensor(),
-                                    nsamples_perclass=test_nsamples_perclass),
-        batch_size=batch_size, shuffle=True)
-
-    for batch_idx, (input_img, target_img, label) in enumerate(test_loader):
-        print('Processing (%d / %d)...' % (batch_idx, len(test_loader)))
-        input_img = input_img.to(device)
-        input_img.requires_grad = True
-        target_img = target_img.to(device)
-        vbackprop.generate_gradients(input_img, target_img)
-
-
-if __name__ == '__main__':
-    main()

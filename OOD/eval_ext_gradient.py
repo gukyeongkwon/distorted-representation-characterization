@@ -12,9 +12,10 @@ import d_ext_gradient_train
 import cal_metric
 
 
-parser = argparse.ArgumentParser(description='PyTorch Autoencoder Training')
+parser = argparse.ArgumentParser(description='Evaluation of a trained discriminator.')
 parser.add_argument('--print-freq', '-pf', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
+parser.add_argument('--dataset-dir',  default='./cure-tsr', type=str, help='directory for extracted gradients')
 
 
 def main():
@@ -24,19 +25,22 @@ def main():
 
     batch_size = 64
     train_chall = '07_01'
-    all_results = np.zeros([5, 12 * 5])
+    chall_type_list = [1, 2, 3, 5, 8, 9]
+    all_results = np.zeros([5, len(chall_type_list) * 5])
 
     challcnt = 0
-    for challID in range(1, 13):
+    for challID in chall_type_list:
         for levelID in range(1, 6):
             test_chall = '%02d_%02d' % (challID, levelID)
             vae_ckpt = './checkpoints/cure-tsr/vae/' \
                        'vae_BCE_gradient_reducedCnnSeq-4layer_train-00_00_val-00_00/model_best.pth.tar'
             gradient_layer = 'down_6'  # kld
-            d_ckpt = './checkpoints/cure-tsr/d/%s/kld_grad/' \
-                     'd_BCE_ShallowLinear_norm_bce-%s_in-00_00_out-%s/model_best.pth.tar' \
-                     % (vae_ckpt.split('/')[-2], gradient_layer, train_chall)
-            dataset_dir = '/media/gukyeong/HardDisk/CURE-TSR/folds/kld_grad/%s' % vae_ckpt.split('/')[-2]
+            gradient_layer2 = 'up_6'  # bce
+            d_ckpt = './checkpoints/cure-tsr/d/%s/bce_kld_grad/' \
+                     'd_BCE_ShallowLinear_bce-%s_kld-%s_in-00_00_out-%s/model_best.pth.tar' \
+                     % (vae_ckpt.split('/')[-2], gradient_layer2, gradient_layer, train_chall)
+            dataset_dir = os.path.join(args.dataset_dir, 'kld_grad/%s' % vae_ckpt.split('/')[-2])
+            dataset_dir2 = os.path.join(args.dataset_dir, 'bce_grad/%s' % vae_ckpt.split('/')[-2])
 
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -53,17 +57,7 @@ def main():
             else:
                 print("=> no checkpoint found at '{}'".format(vae_ckpt))
 
-            if gradient_layer == 'latent':
-                grad_dim = vae.module.fc11.weight.shape[0]
-            elif gradient_layer == 'input':
-                grad_dim = 28 * 28 * 3
-            else:
-                ngradlayer = gradient_layer.split('_')[1]
-                if gradient_layer.split('_')[0] == 'down':
-                    grad_dim = vae.module.down[int(ngradlayer)].weight.view(-1).shape[0]
-                elif gradient_layer.split('_')[0] == 'up':
-                    grad_dim = vae.module.up[int(ngradlayer)].weight.view(-1).shape[0]
-            # grad_dim = vae.module.down[6].weight.view(-1).shape[0] + vae.module.up[6].weight.view(-1).shape[0]
+            grad_dim = vae.module.down[6].weight.view(-1).shape[0] + vae.module.up[6].weight.view(-1).shape[0]
 
             d = models.DisShallowLinear(grad_dim)
             d = torch.nn.DataParallel(d).to(device)
@@ -80,11 +74,13 @@ def main():
                 print("=> no checkpoint found at '{}'".format(d_ckpt))
 
             in_test_loader = torch.utils.data.DataLoader(
-                datasets.GradDataset([os.path.join(dataset_dir, '00_00_test_%s.pt' % gradient_layer)]),
+                datasets.GradDataset([os.path.join(dataset_dir, '00_00_test_%s.pt' % gradient_layer),
+                                      os.path.join(dataset_dir2, '00_00_test_%s.pt' % gradient_layer2)]),
                 batch_size=batch_size, shuffle=True)
 
             out_test_loader = torch.utils.data.DataLoader(
-                datasets.GradDataset([os.path.join(dataset_dir, '%s_test_%s.pt' % (test_chall, gradient_layer))]),
+                datasets.GradDataset([os.path.join(dataset_dir, '%s_test_%s.pt' % (test_chall, gradient_layer)),
+                                      os.path.join(dataset_dir2, '%s_test_%s.pt' % (test_chall, gradient_layer2))]),
                 batch_size=batch_size, shuffle=True)
 
             # Start evaluation
@@ -104,7 +100,7 @@ def main():
             all_results[1::, challcnt] = cal_metric.calMetric(in_pred, out_pred)
             challcnt += 1
 
-    np.savetxt('./csv_results/act_%s_%s.csv' % (vae_ckpt.split('/')[-2], d_ckpt.split('/')[-2]), all_results,
+    np.savetxt('./results_%s_%s.csv' % (vae_ckpt.split('/')[-2], d_ckpt.split('/')[-2]), all_results,
                fmt='%.3f', delimiter=',')
 
 
